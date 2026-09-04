@@ -463,7 +463,9 @@ impl CudaContext {
         if prev == 0 && self.event_tracking.load(Ordering::Relaxed) {
             self.synchronize()?;
         }
-        let flags = cuda_bindings::CUstream_flags_enum_CU_STREAM_NON_BLOCKING;
+        // C enum constants are signed on MSVC; the driver takes an unsigned flags word.
+        #[allow(clippy::unnecessary_cast)]
+        let flags = cuda_bindings::CUstream_flags_enum_CU_STREAM_NON_BLOCKING as u32;
         let mut cu_stream = MaybeUninit::uninit();
         let cu_stream = unsafe {
             match priority {
@@ -720,8 +722,11 @@ impl CudaContext {
             )
             .result()?;
             let current = current.assume_init();
-            let new_flags =
-                (current & !cuda_bindings::CUctx_flags_enum_CU_CTX_SCHED_MASK) | policy.to_raw();
+            #[allow(clippy::unnecessary_cast)]
+            let mask = cuda_bindings::CUctx_flags_enum_CU_CTX_SCHED_MASK as u32;
+            #[allow(clippy::unnecessary_cast)]
+            let policy = policy.to_raw() as u32;
+            let new_flags = (current & !mask) | policy;
             cuda_bindings::cuDevicePrimaryCtxSetFlags_v2(self.cu_device, new_flags).result()
         }
     }
@@ -742,7 +747,9 @@ impl CudaContext {
                 active.as_mut_ptr(),
             )
             .result()?;
-            Ok(SyncPolicy::from_raw(flags.assume_init()))
+            #[allow(clippy::unnecessary_cast)]
+            let flags = flags.assume_init() as cuda_bindings::CUctx_flags_enum;
+            Ok(SyncPolicy::from_raw(flags))
         }
     }
 
@@ -755,7 +762,7 @@ impl CudaContext {
         if error_state == 0 {
             Ok(())
         } else {
-            Err(DriverError(error_state))
+            Err(DriverError(result_from_bits(error_state)))
         }
     }
 
@@ -767,7 +774,36 @@ impl CudaContext {
     /// calls will surface it. A later store overwrites an earlier one.
     pub fn record_err<T>(&self, result: Result<T, DriverError>) {
         if let Err(err) = result {
-            self.error_state.store(err.0, Ordering::Relaxed)
+            self.error_state
+                .store(result_bits(err.0), Ordering::Relaxed)
+        }
+    }
+}
+
+// Keep all CUresult bits in the atomic word on both signed and unsigned enum ABIs.
+#[allow(clippy::unnecessary_cast)]
+fn result_bits(result: cuda_bindings::CUresult) -> u32 {
+    result as u32
+}
+
+#[allow(clippy::unnecessary_cast)]
+fn result_from_bits(bits: u32) -> cuda_bindings::CUresult {
+    bits as cuda_bindings::CUresult
+}
+
+#[cfg(test)]
+mod representation_tests {
+    use super::*;
+
+    #[test]
+    fn sticky_error_storage_preserves_every_result_bit() {
+        for bits in [0, 1, i32::MAX as u32, 1 << 31, u32::MAX] {
+            let storage = AtomicU32::new(result_bits(result_from_bits(bits)));
+            assert_eq!(
+                result_bits(result_from_bits(storage.swap(0, Ordering::Relaxed))),
+                bits
+            );
+            assert_eq!(storage.load(Ordering::Relaxed), 0);
         }
     }
 }

@@ -70,6 +70,8 @@ impl CudaContext {
         self.bind_to_thread()?;
         let mut cu_event = MaybeUninit::uninit();
         let cu_event = unsafe {
+            #[allow(clippy::unnecessary_cast)]
+            let flags = flags as u32;
             cuda_bindings::cuEventCreate(cu_event.as_mut_ptr(), flags).result()?;
             cu_event.assume_init()
         };

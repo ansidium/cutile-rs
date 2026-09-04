@@ -154,9 +154,10 @@ impl std::error::Error for EmbeddedModuleError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oxide_artifacts::OwnedArtifactPayload;
+    #[cfg(target_os = "linux")]
     use oxide_artifacts::{
         build_artifact_blob, build_host_object_for_target, ArtifactBundleSpec, ArtifactPayloadSpec,
-        OwnedArtifactPayload,
     };
 
     #[test]

@@ -648,7 +648,7 @@ impl CudaFunction {
             unsafe { std::mem::zeroed() };
         unsafe {
             let base = &mut cluster_attribute as *mut _ as *mut u8;
-            (base as *mut u32).write(
+            (base as *mut cuda_bindings::CUlaunchAttributeID).write(
                 cuda_bindings::CUlaunchAttributeID_enum_CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION,
             );
             let dimensions = base.add(8) as *mut u32;
